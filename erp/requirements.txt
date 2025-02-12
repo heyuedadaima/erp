@@ -1,0 +1,8 @@
+-i https://pypi.tuna.tsinghua.edu.cn/simple
+Flask
+Flask-Cors
+SQLAlchemy
+pdfplumber
+openpyxl
+pandas
+pymysql
