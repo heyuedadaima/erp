@@ -9,6 +9,7 @@ import traceback
 import pandas as pd
 import sys
 import io
+import pymysql
 
 
 JSON_AS_ASCII = False
@@ -23,7 +24,7 @@ CORS(app)
 DATABASE_CONFIG = {
     'user': 'root',  # 替换为你的数据库用户名
     'password': '123456',  # 替换为你的数据库密码
-    'host':'db',  # 数据库地址
+    'host':'mysql',  # 数据库地址
     'port': 3306,  # 数据库端口
     'database': 'erp'  # 替换为你的数据库名称
 }
@@ -34,6 +35,105 @@ DB_URL = f"mysql+pymysql://{DATABASE_CONFIG['user']}:{DATABASE_CONFIG['password'
 
 # 创建数据库引擎
 engine = create_engine(DB_URL)
+
+@app.before_request
+def initialize_database():
+    try:
+        message = create_database_if_not_exists()  # 每次请求都检查数据库
+        print(message)
+    except Exception as e:
+        print(str(e))
+
+def create_database_if_not_exists():
+    connection = None
+    try:
+        # 获取当前脚本所在目录
+        current_directory = os.path.dirname(__file__)
+
+        # 构建 SQL 文件路径
+        sql_file_path = os.path.join(current_directory, 'erp3.sql')
+
+        # 连接到 MySQL 服务器（没有指定数据库名称）
+        connection = pymysql.connect(
+            host=DATABASE_CONFIG['host'],
+            user=DATABASE_CONFIG['user'],
+            password=DATABASE_CONFIG['password'],
+            port=DATABASE_CONFIG['port']
+        )
+
+        with connection.cursor() as cursor:
+            # 检查是否存在 `erp` 数据库
+            cursor.execute("SHOW DATABASES LIKE 'erp'")
+            result = cursor.fetchone()
+
+            if result is None:
+                # 如果不存在，创建数据库
+                cursor.execute("CREATE DATABASE erp")
+                print("Database 'erp' created.")
+
+                # 切换到 `erp` 数据库
+                cursor.execute("USE erp")
+
+                # 读取 SQL 脚本文件
+                with open(sql_file_path, 'r') as file:
+                    sql_script = file.read()
+
+                    # 将 SQL 脚本按分号拆分为单独的语句
+                    sql_statements = sql_script.split(';')
+
+                    # 逐条执行 SQL 语句
+                    for statement in sql_statements:
+                        if statement.strip():  # 跳过空语句
+                            try:
+                                cursor.execute(statement)
+                            except pymysql.MySQLError as e:
+                                print(f"Error executing SQL statement: {statement}")
+                                raise
+
+                connection.commit()
+                return "Database 'erp' created and SQL script executed successfully."
+            else:
+                # 如果数据库存在，检查是否为空表
+                cursor.execute("USE erp")
+                cursor.execute("SHOW TABLES")
+                tables = cursor.fetchall()
+
+                if not tables:
+                    # 如果数据库为空表，执行 SQL 脚本
+                    print("Database 'erp' exists but is empty. Executing SQL script...")
+
+                    # 读取 SQL 脚本文件
+                    with open(sql_file_path, 'r') as file:
+                        sql_script = file.read()
+
+                        # 将 SQL 脚本按分号拆分为单独的语句
+                        sql_statements = sql_script.split(';')
+
+                        # 逐条执行 SQL 语句
+                        for statement in sql_statements:
+                            if statement.strip():  # 跳过空语句
+                                try:
+                                    cursor.execute(statement)
+                                except pymysql.MySQLError as e:
+                                    print(f"Error executing SQL statement: {statement}")
+                                    raise
+
+                    connection.commit()
+                    return "Database 'erp' is empty. SQL script executed successfully."
+                else:
+                    return "Database 'erp' already exists and is not empty."
+
+    except pymysql.MySQLError as e:
+        raise Exception(f"MySQL Error: {str(e)}")
+    except FileNotFoundError as fnf_error:
+        raise Exception(f"File Error: {str(fnf_error)}")
+    except Exception as e:
+        raise Exception(f"Error creating database or executing script: {str(e)}")
+    finally:
+        if connection:
+            connection.close()
+
+
 
 @app.route('/products', methods=['GET'])
 def get_products():
